@@ -1,0 +1,36 @@
+Inputs:
+  F           := original bytes
+  Codec       := (id, version, params)  // deterministic settings
+  ChunkSize   := e.g., 64 KiB
+  Hash        := SHA-256
+
+Procedure Prove(F, Codec, ChunkSize):
+  H_F        := Hash(F)
+  C_F, aux   := DeterministicCompress(F, Codec)        // aux holds codec dictionary/seed if any
+  chunks     := Chunk(C_F, ChunkSize)
+  h_chunks   := [ Hash(ch) for ch in chunks ]
+  M_root     := MerkleRoot(h_chunks)
+
+  transcript := DomainSep("zkPoC-v1") ||
+                Encode(Codec) || Encode(ChunkSize) ||
+                H_F || Hash(C_F) || M_root
+  // In a real system:
+  //   proof := ZK_Prove(statement: "D(C_F, aux) == F and Hash(F) == H_F")
+  // Reference mock (until ZK is integrated):
+  proof := SignTranscript(transcript)  // HMAC/Ed25519 etc.
+
+  return (Commit{Codec, ChunkSize, H_F, Hash(C_F), M_root, h_chunks, Proof=proof}, C_F, aux)
+
+Procedure Verify(commit, C_F, aux):
+  // Option A (real ZK): ZK_Verify(commit.Proof, public_inputs=(commit.Codec, commit.ChunkSize, commit.H_F, Hash(C_F), commit.M_root))
+  // Option B (reference mock): verify signature over transcript AND (optionally) decompress to check correctness
+  assert Hash(C_F) == commit.Hash_C_F
+  h_chunks := [ Hash(ch) for ch in Chunk(C_F, commit.ChunkSize) ]
+  assert MerkleRoot(h_chunks) == commit.M_root
+  assert VerifyTranscriptSignature(commit.Proof, DomainSep || Codec || ChunkSize || commit.H_F || commit.Hash_C_F || commit.M_root)
+
+  // Optional (for strong demo credibility):
+  F' := DeterministicDecompress(C_F, aux, commit.Codec)
+  assert Hash(F') == commit.H_F
+
+  return true
